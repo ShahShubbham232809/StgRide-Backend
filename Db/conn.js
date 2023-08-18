@@ -2,7 +2,7 @@ const mongoose = require('mongoose')
 // const { env } = require("process");
 require("dotenv").config()
 // console.log(process.env.MONGO_URL)
-const url = `mongodb://localhost:27017/finaltask`;
+const url = `mongodb+srv://Stg:8160681684@cluster0.nxrvqte.mongodb.net/?retryWrites=true&w=majority`;
 
 mongoose.connect(url, {
     useNewUrlParser: true,
