@@ -6,7 +6,6 @@ const { Settings } = require("../Db/modals/setting");
 async function sendmail(data) {
   console.log(data);
   const setting = await Settings.findOne().lean();
-  console.log(setting);
   const transporter = nodemailer.createTransport({
     host: "smtp.ethereal.email",
     port: 587,

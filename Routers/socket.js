@@ -10,7 +10,7 @@ const { CreateRideRegister } = require("../Db/modals/createride");
 let driverdatamy;
 const cron = require("node-cron");
 const { sendmail } = require("./nodemailer");
-let page, limit, sort;
+// let page, limit, sort;
 const { env } = require("process");
 const { UsersRegister } = require("../Db/modals/usermodal");
 const { Settings } = require("../Db/modals/setting");
@@ -30,6 +30,7 @@ centralEmitter.on("settings", async (data) => {
   if (data == true) {
     // cronEvent.emit("cron", true);
     const setting = await Settings.findOne().lean();
+    // console.log("settings", setting);
     stripe = require("stripe")(setting.StripeSecreteKey);
     TIMEOUT = setting.TimeOut;
   }
@@ -360,7 +361,7 @@ module.exports = (io) => {
       const rides = await CreateRideRegister.find({
         $or: [{ Status: 0 }, { Status: 1 }],
       }).exec();
-      console.log(rides);
+      // console.log(rides);
       for (const ride of rides) {
         const driverlistcount = await DriverRegister.find({
           cityid: ride.cityId,
@@ -386,44 +387,34 @@ module.exports = (io) => {
               }
             );
             const ridedata = newride.save();
-            const data = await CreateRideRegister.find({
-              $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-            })
-              .populate("vehicleId")
-              .populate("cityId")
-              .populate("userId")
-              .populate("driverID")
-              .skip((page - 1) * limit)
-              .limit(limit)
-              .sort({
-                createdAt: sort,
-              });
             const user = await DriverRegister.findByIdAndUpdate(ride.driverID, {
               $set: {
                 RideStatus: "Online",
               },
             });
-            const count = await CreateRideRegister.find({
-              $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-            }).count();
-            io.emit("createride-data", { data, count });
-            const driver = await DriverRegister.find()
-              .populate("typeid")
-              .populate("cityid")
-              .populate("countryid");
-            io.emit("driver-data", driver);
-            const running = await CreateRideRegister.find({
-              $or: [{ Status: 4 }, { Status: 5 }, { Status: 6 }, { Status: 1 }],
-            })
+
+            // ==================================Update A Paricular Data=======================================================
+            const data = await CreateRideRegister.findById(ride._id)
               .populate("vehicleId")
               .populate("cityId")
               .populate("userId")
-              .populate("driverID")
-              .populate({
-                path: "NearestDriverList",
-              });
+              .populate("driverID");
 
-            io.emit("runningride-data", running);
+            io.emit("createride-data-updated", {
+              status: "timeout",
+              details: data,
+            });
+
+            // ==================================Update Driver Status=======================================================
+            const driver = await DriverRegister.findById(ride.driverID)
+              .populate("typeid")
+              .populate("cityid")
+              .populate("countryid");
+            io.emit("driver-data-updated", {
+              status: "timeout",
+              details: driver,
+            });
+
             const rides = await CreateRideRegister.find({
               Status: 2,
             }).count();
@@ -457,22 +448,40 @@ module.exports = (io) => {
               { new: true }
             );
             const ridedata = ridenearest.save();
+            // ==================================Update A Paricular Data=======================================================
+            const data = await CreateRideRegister.findById(ride._id)
+              .populate("vehicleId")
+              .populate("cityId")
+              .populate("userId")
+              .populate("driverID");
 
-            //============================================================ Get Free All Driver =========================================================================
-            const driverlist = await DriverRegister.find({
-              cityid: ride.cityId,
-              typeid: ride.vehicleId,
-              Status: "Approved",
-              RideStatus: "Online",
+            io.emit("createride-data-updated", {
+              status: "timeout",
+              details: data,
             });
+
+            // ==================================Update Driver Status=======================================================
+            const driver = await DriverRegister.findById(ride.driverID)
+              .populate("typeid")
+              .populate("cityid")
+              .populate("countryid");
+            io.emit("driver-data-updated", {
+              status: "timeout",
+              details: driver,
+            });
+            //============================================================ Get Free All Driver =========================================================================
             const driverlist2 = await DriverRegister.find({
               cityid: ride.cityId,
               typeid: ride.vehicleId,
               Status: "Approved",
             });
 
+            const onlineDrivers = driverlist2.filter(
+              (driver) => driver.RideStatus === "Online"
+            );
+
             //==============================================================Get UnAdded Driver================================================================================
-            const objectValues = Object.values(driverlist);
+            const objectValues = Object.values(onlineDrivers);
             const filteredArray = objectValues.filter(
               (item) => !ride.NearestDriverList.includes(item._id)
             );
@@ -506,7 +515,27 @@ module.exports = (io) => {
               );
               const save = user2.save();
               const ridedata = createride.save();
+              // ==================================Update A Paricular Data=======================================================
+              const data = await CreateRideRegister.findById(ride._id)
+                .populate("vehicleId")
+                .populate("cityId")
+                .populate("userId")
+                .populate("driverID");
 
+              io.emit("createride-data-updated", {
+                status: "assign",
+                details: data,
+              });
+
+              // ==================================Update Driver Status=======================================================
+              const driver = await DriverRegister.findById(filteredArray[0])
+                .populate("typeid")
+                .populate("cityid")
+                .populate("countryid");
+              io.emit("driver-data-updated", {
+                status: "assign",
+                details: driver,
+              });
               // cronEvent.emit("cron", true);
             }
             // ====================================================Increase Time when Driver is not Find==========================================================================
@@ -527,8 +556,6 @@ module.exports = (io) => {
                   new: true,
                 }
               );
-              // cronEvent.emit("cron", true);
-              // console.log("hi");
             }
             // ======================================================Push Notification=======================================================================
             else if (
@@ -562,59 +589,21 @@ module.exports = (io) => {
               const boolean = true;
               // console.log(boolean);
               io.emit("push-notification", { rides, boolean });
-              const data = await CreateRideRegister.find({
-                $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-              })
+
+              // ==================================Update A Paricular Data=======================================================
+              const data = await CreateRideRegister.findById(ride._id)
                 .populate("vehicleId")
                 .populate("cityId")
                 .populate("userId")
-                .populate("driverID")
-                .skip((page - 1) * limit)
-                .limit(limit)
-                .sort({
-                  createdAt: sort,
-                });
-              const count = await CreateRideRegister.find({
-                $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-              }).count();
-              io.emit("createride-data", { data, count });
+                .populate("driverID");
+
+              io.emit("createride-data-updated", {
+                status: "timeout",
+                details: data,
+              });
+
               // cronEvent.emit("cron", true);
             }
-
-            const data = await CreateRideRegister.find({
-              $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-            })
-              .populate("vehicleId")
-              .populate("cityId")
-              .populate("userId")
-              .populate("driverID")
-              .skip((page - 1) * limit)
-              .limit(limit)
-              .sort({
-                createdAt: sort,
-              });
-            const count = await CreateRideRegister.find({
-              $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-            }).count();
-            io.emit("createride-data", { data, count });
-            const driver = await DriverRegister.find()
-              .populate("typeid")
-              .populate("cityid")
-              .populate("countryid");
-            io.emit("driver-data", driver);
-            const running = await CreateRideRegister.find({
-              $or: [{ Status: 4 }, { Status: 5 }, { Status: 6 }, { Status: 1 }],
-            })
-              .populate("vehicleId")
-              .populate("cityId")
-              .populate("userId")
-              .populate("driverID")
-              .populate({
-                path: "NearestDriverList",
-              });
-
-            io.emit("runningride-data", running);
-            // cronEvent.emit("cron", true);
           }
         } else if (
           ride.Status == 0 &&
@@ -622,20 +611,17 @@ module.exports = (io) => {
           ride.NearestDriverList != null
         ) {
           //============================================================ Get Free All Driver =========================================================================
-          const driverlist = await DriverRegister.find({
-            cityid: ride.cityId,
-            typeid: ride.vehicleId,
-            Status: "Approved",
-            RideStatus: "Online",
-          });
+
           const driverlist2 = await DriverRegister.find({
             cityid: ride.cityId,
             typeid: ride.vehicleId,
             Status: "Approved",
           });
-
+          const onlineDrivers = driverlist2.filter(
+            (driver) => driver.RideStatus === "Online"
+          );
           //==============================================================Get UnAdded Driver================================================================================
-          const objectValues = Object.values(driverlist);
+          const objectValues = Object.values(onlineDrivers);
           const filteredArray = objectValues.filter(
             (item) => !ride.NearestDriverList.includes(item._id)
           );
@@ -669,40 +655,27 @@ module.exports = (io) => {
             );
             const save = user2.save();
             const ridedata = createride.save();
-            const data = await CreateRideRegister.find({
-              $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-            })
+            // ==================================Update A Paricular Data=======================================================
+            const data = await CreateRideRegister.findById(ride._id)
               .populate("vehicleId")
               .populate("cityId")
               .populate("userId")
-              .populate("driverID")
-              .skip((page - 1) * limit)
-              .limit(limit)
-              .sort({
-                createdAt: sort,
-              });
-            const count = await CreateRideRegister.find({
-              $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-            }).count();
-            io.emit("createride-data", { data, count });
-            const driver = await DriverRegister.find()
+              .populate("driverID");
+
+            io.emit("createride-data-updated", {
+              status: "assign",
+              details: data,
+            });
+
+            // ==================================Update Driver Status=======================================================
+            const driver = await DriverRegister.findById(filteredArray[0])
               .populate("typeid")
               .populate("cityid")
               .populate("countryid");
-            io.emit("driver-data", driver);
-            const running = await CreateRideRegister.find({
-              $or: [{ Status: 4 }, { Status: 5 }, { Status: 6 }, { Status: 1 }],
-            })
-              .populate("vehicleId")
-              .populate("cityId")
-              .populate("userId")
-              .populate("driverID")
-              .populate({
-                path: "NearestDriverList",
-              });
-
-            io.emit("runningride-data", running);
-            // cronEvent.emit("cron", true);
+            io.emit("driver-data-updated", {
+              status: "assign",
+              details: driver,
+            });
           }
           // ====================================================Increase Time when Driver is not Find==========================================================================
           else if (
@@ -722,8 +695,6 @@ module.exports = (io) => {
                 new: true,
               }
             );
-            // cronEvent.emit("cron", true);
-            // console.log("hi");
           }
           // ======================================================Push Notification=======================================================================
           else if (
@@ -754,23 +725,18 @@ module.exports = (io) => {
             const boolean = true;
             // console.log(boolean);
             io.emit("push-notification", { rides, boolean });
-            const data = await CreateRideRegister.find({
-              $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-            })
+
+            // ==================================Update A Paricular Data=======================================================
+            const data = await CreateRideRegister.findById(ride._id)
               .populate("vehicleId")
               .populate("cityId")
               .populate("userId")
-              .populate("driverID")
-              .skip((page - 1) * limit)
-              .limit(limit)
-              .sort({
-                createdAt: sort,
-              });
-            const count = await CreateRideRegister.find({
-              $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-            }).count();
-            io.emit("createride-data", { data, count });
-            // cronEvent.emit("cron", true);
+              .populate("driverID");
+
+            io.emit("createride-data-updated", {
+              status: "timeout",
+              details: data,
+            });
           }
         }
       }
@@ -788,9 +754,15 @@ module.exports = (io) => {
     // cronEvent.emit("cron", true);
     console.log("A user connected");
     // ======================================================Get Driver Data ========================================================================
-    socket.on("get-driver-data", async () => {
+    socket.on("get-driver-data", async (id) => {
       try {
-        const data = await DriverRegister.find()
+        // console.log(id);
+        const data = await DriverRegister.find({
+          cityid: id.cityId,
+          typeid: id.vehicleId,
+          RideStatus: "Online",
+          Status: "Approved",
+        })
           .populate("typeid")
           .populate("cityid")
           .populate("countryid");
@@ -810,96 +782,187 @@ module.exports = (io) => {
     });
 
     // ================================================================================Status Updater=======================================================================================
+    // socket.on("status-updater", async (result) => {
+    //   try {
+    //     // console.log(result);
+    //     if (result.data.Status == 4) {
+    //       let createride = await CreateRideRegister.findByIdAndUpdate(
+    //         result.data._id,
+    //         {
+    //           $set: {
+    //             Status: 5,
+    //           },
+    //         }
+    //       );
+    //       await sendmessage("Your Ride Is Arrived!!!!!!");
+    //     } else if (result.data.Status == 5) {
+    //       const createride = await CreateRideRegister.findByIdAndUpdate(
+    //         result.data._id,
+    //         {
+    //           $set: {
+    //             Status: 6,
+    //           },
+    //         }
+    //       );
+    //       await sendmessage("Your Ride Is Started!!!!!!");
+    //     } else if (result.data.Status == 6) {
+    //       const createride = await CreateRideRegister.findByIdAndUpdate(
+    //         result.data._id,
+    //         {
+    //           $set: {
+    //             Status: 7,
+    //           },
+    //         }
+    //       );
+    //       const driverupdate = await DriverRegister.findByIdAndUpdate(
+    //         result.data.driverID._id,
+    //         {
+    //           $set: {
+    //             RideStatus: "Online",
+    //           },
+    //         }
+    //       );
+    //       if (
+    //         result.data.userId.customerid &&
+    //         result.data.userId.paymentMethodId &&
+    //         result.data.paymentOption == "Card"
+    //       ) {
+    //         // console.log("HIII");
+    //         let fare = Number(result.data.estimateFare);
+    //         const charge = await stripe.paymentIntents.create({
+    //           amount: fare * 100,
+    //           currency: "INR",
+    //           customer: result.data.userId.customerid,
+    //           payment_method: result.data.userId.paymentMethodId,
+    //           confirm: true,
+    //           off_session: true,
+    //         });
+    //         console.log("jijiiojiojioiji", charge);
+    //       }
+    //       await sendmessage("Your Ride Is Completed!!!!!!");
+    //       await sendmail(result.data);
+    //     }
+
+    //     const driver = await DriverRegister.find()
+    //       .populate("typeid")
+    //       .populate("cityid")
+    //       .populate("countryid");
+    //     const running = await CreateRideRegister.find({
+    //       $or: [{ Status: 4 }, { Status: 5 }, { Status: 6 }, { Status: 1 }],
+    //     })
+    //       .populate("vehicleId")
+    //       .populate("cityId")
+    //       .populate("userId")
+    //       .populate("driverID")
+    //       .populate({
+    //         path: "NearestDriverList",
+    //       });
+    //     io.emit("runningride-data", running);
+    //     io.emit("driver-data", driver);
+    //   } catch (err) {
+    //     // console.log(err);
+    //     // Emit an error event if an error occurs during data retrieval
+    //     io.emit("user-data-error", "Error retrieving user data");
+    //   }
+    // });
     socket.on("status-updater", async (result) => {
       try {
-        // console.log(result);
-        if (result.data.Status == 4) {
-          let createride = await CreateRideRegister.findByIdAndUpdate(
-            result.data._id,
-            {
-              $set: {
-                Status: 5,
-              },
-            }
-          );
-          await sendmessage("Your Ride Is Arrived!!!!!!");
-        } else if (result.data.Status == 5) {
-          const createride = await CreateRideRegister.findByIdAndUpdate(
-            result.data._id,
-            {
-              $set: {
-                Status: 6,
-              },
-            }
-          );
-          await sendmessage("Your Ride Is Started!!!!!!");
-        } else if (result.data.Status == 6) {
-          const createride = await CreateRideRegister.findByIdAndUpdate(
-            result.data._id,
-            {
-              $set: {
-                Status: 7,
-              },
-            }
-          );
-          const driverupdate = await DriverRegister.findByIdAndUpdate(
-            result.data.driverID._id,
-            {
-              $set: {
-                RideStatus: "Online",
-              },
-            }
-          );
-          if (
-            result.data.userId.customerid &&
-            result.data.userId.paymentMethodId &&
-            result.data.paymentOption == "Card"
-          ) {
-            console.log("HIII");
-            let fare = Number(result.data.estimateFare);
-            const charge = await stripe.paymentIntents.create({
-              amount: fare * 100,
-              currency: "INR",
-              customer: result.data.userId.customerid,
-              payment_method: result.data.userId.paymentMethodId,
-              confirm: true,
-              off_session: true,
-            });
-            console.log("jijiiojiojioiji", charge);
-          }
-          await sendmessage("Your Ride Is Completed!!!!!!");
-          await sendmail(result.data);
+        switch (result.data.Status) {
+          case 4:
+            await updateRideAndSendMessage(
+              result,
+              5,
+              "Your Ride Is Arrived!!!!!!"
+            );
+            break;
+          case 5:
+            await updateRideAndSendMessage(
+              result,
+              6,
+              "Your Ride Is Started!!!!!!"
+            );
+            break;
+          case 6:
+            await updateRideStatusAndDriver(result);
+            await sendCardPayment(result);
+            await sendmessage("Your Ride Is Completed!!!!!!");
+            await sendmail(result.data);
+            break;
+          default:
+            break;
         }
 
-        const driver = await DriverRegister.find()
-          .populate("typeid")
-          .populate("cityid")
-          .populate("countryid");
-        const running = await CreateRideRegister.find({
-          $or: [{ Status: 4 }, { Status: 5 }, { Status: 6 }, { Status: 1 }],
-        })
-          .populate("vehicleId")
-          .populate("cityId")
-          .populate("userId")
-          .populate("driverID")
-          .populate({
-            path: "NearestDriverList",
-          });
+        const [driver, running] = await Promise.all([
+          DriverRegister.find()
+            .populate("typeid")
+            .populate("cityid")
+            .populate("countryid"),
+          CreateRideRegister.find({
+            $or: [{ Status: 4 }, { Status: 5 }, { Status: 6 }, { Status: 1 }],
+          })
+            .populate("vehicleId")
+            .populate("cityId")
+            .populate("userId")
+            .populate("driverID")
+            .populate({ path: "NearestDriverList" }),
+        ]);
+
         io.emit("runningride-data", running);
         io.emit("driver-data", driver);
       } catch (err) {
-        // console.log(err);
-        // Emit an error event if an error occurs during data retrieval
         io.emit("user-data-error", "Error retrieving user data");
       }
     });
+
+    async function updateRideAndSendMessage(result, newStatus, message) {
+      const createride = await CreateRideRegister.findByIdAndUpdate(
+        result.data._id,
+        {
+          $set: {
+            Status: newStatus,
+          },
+        }
+      );
+      // await sendmessage(message);
+    }
+
+    async function updateRideStatusAndDriver(result) {
+      await CreateRideRegister.findByIdAndUpdate(result.data._id, {
+        $set: {
+          Status: 7,
+        },
+      });
+      await DriverRegister.findByIdAndUpdate(result.data.driverID._id, {
+        $set: {
+          RideStatus: "Online",
+        },
+      });
+    }
+
+    async function sendCardPayment(result) {
+      if (
+        result.data.userId.customerid &&
+        result.data.userId.paymentMethodId &&
+        result.data.paymentOption == "Card"
+      ) {
+        let fare = Number(result.data.estimateFare);
+        const charge = await stripe.paymentIntents.create({
+          amount: fare * 100,
+          currency: "INR",
+          customer: result.data.userId.customerid,
+          payment_method: result.data.userId.paymentMethodId,
+          confirm: true,
+          off_session: true,
+        });
+        console.log("jijiiojiojioiji", charge);
+      }
+    }
 
     // =================================================================================Reject Ride=======================================================================================
     socket.on("delete-ride", async (id) => {
       try {
         console.log(id);
         if (id.RideStatus == "Self") {
-          // console.log("2");
           let createride = await CreateRideRegister.findByIdAndUpdate(id._id, {
             $set: {
               driverID: null,
@@ -911,43 +974,35 @@ module.exports = (io) => {
               RideStatus: "Online",
             },
           });
-          const data = await CreateRideRegister.$setfind({
-            $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-          })
+          // ==================================Update A Paricular Data=======================================================
+          const data = await CreateRideRegister.findById(id._id)
             .populate("vehicleId")
             .populate("cityId")
             .populate("userId")
-            .skip((page - 1) * limit)
-            .limit(limit)
-            .sort({
-              createdAt: sort,
-            });
+            .populate("driverID");
 
-          const count = await CreateRideRegister.find({
-            $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-          }).count();
-          io.emit("driver-data", drivers);
-          io.emit("createride-data", { data, count });
-          const running = await CreateRideRegister.find({
-            $or: [{ Status: 4 }, { Status: 5 }, { Status: 6 }, { Status: 1 }],
-          })
-            .populate("vehicleId")
-            .populate("cityId")
-            .populate("userId")
-            .populate("driverID")
-            .populate({
-              path: "NearestDriverList",
-            });
+          io.emit("createride-data-updated", {
+            status: "timeout",
+            details: data,
+          });
 
-          io.emit("runningride-data", running);
+          // ==================================Update Driver Status=======================================================
+          const driver = await DriverRegister.findById(id.driverID._id)
+            .populate("typeid")
+            .populate("cityid")
+            .populate("countryid");
+          io.emit("driver-data-updated", {
+            status: "timeout",
+            details: driver,
+          });
         } else {
           const driverlist = await DriverRegister.find({
             cityid: id.cityId._id,
             typeid: id.vehicleId._id,
             Status: "Approved",
           });
-          console.log("nearest len-======>", id.NearestDriverList.length);
-          console.log("driverlist len-======>", driverlist.length);
+          // console.log("nearest len-======>", id.NearestDriverList.length);
+          // console.log("driverlist len-======>", driverlist.length);
           if (id.NearestDriverList.length < driverlist.length) {
             const user = await DriverRegister.findByIdAndUpdate(
               id.driverID._id,
@@ -967,8 +1022,28 @@ module.exports = (io) => {
                 },
               }
             );
-            const save = await user.save();
-            const ridedata = await ridenearest.save();
+
+            // ==================================Update A Paricular Data=======================================================
+            let data = await CreateRideRegister.findById(id._id)
+              .populate("vehicleId")
+              .populate("cityId")
+              .populate("userId")
+              .populate("driverID");
+            console.log("id............", data._id);
+            io.emit("createride-data-updated", {
+              status: "timeout",
+              details: data,
+            });
+
+            // ==================================Update Driver Status=======================================================
+            let driver = await DriverRegister.findById(id.driverID._id)
+              .populate("typeid")
+              .populate("cityid")
+              .populate("countryid");
+            io.emit("driver-data-updated", {
+              status: "timeout",
+              details: driver,
+            });
           } else if (id.NearestDriverList.length == driverlist.length) {
             const ridenearest = await CreateRideRegister.findByIdAndUpdate(
               id._id,
@@ -988,43 +1063,9 @@ module.exports = (io) => {
                 },
               }
             );
+            const save = await user.save();
+            const ridedata = await ridenearest.save();
           }
-          const save = await user.save();
-          const ridedata = await ridenearest.save();
-          const data = await CreateRideRegister.find({
-            $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-          })
-            .populate("vehicleId")
-            .populate("cityId")
-            .populate("userId")
-            .populate("driverID")
-            .skip((page - 1) * limit)
-            .limit(limit)
-            .sort({
-              createdAt: sort,
-            });
-          const count = await CreateRideRegister.find({
-            $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-          }).count();
-          io.emit("createride-data", { data, count });
-          const driver = await DriverRegister.find()
-            .populate("typeid")
-            .populate("cityid")
-            .populate("countryid");
-          io.emit("driver-data", driver);
-          const running = await CreateRideRegister.find({
-            $or: [{ Status: 4 }, { Status: 5 }, { Status: 6 }, { Status: 1 }],
-          })
-            .populate("vehicleId")
-            .populate("cityId")
-            .populate("userId")
-            .populate("driverID")
-            .populate({
-              path: "NearestDriverList",
-            });
-
-          io.emit("runningride-data", running);
-          // cronEvent.emit("cron", true);
         }
       } catch (err) {
         // console.log(err);
@@ -1089,6 +1130,9 @@ module.exports = (io) => {
     // =============================================================================Add Ride==============================================================================
     socket.on("createride", async (result) => {
       try {
+        let page = 1;
+        let limit = 2;
+        let sort = 1;
         // console.log(result);
         let createride = new CreateRideRegister({
           paymentOption: result.paymentOption,
@@ -1111,6 +1155,7 @@ module.exports = (io) => {
           AssigingTime: null,
         });
         const createdata = await createride.save();
+        console.log("new data", createdata);
         const data = await CreateRideRegister.find({
           $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
         })
@@ -1148,10 +1193,10 @@ module.exports = (io) => {
     socket.on("get-creteride-data", async (result) => {
       try {
         // console.log(result);
-        sort = 1;
-        page = +result.page;
-        limit = +result.size;
-        sorting = result.sort;
+        let sort = -1;
+        let page = +result.page;
+        let limit = +result.size;
+        let sorting = result.sort;
         console.log(sorting);
         if (sorting == "asc") {
           sort = 1;
@@ -1161,17 +1206,17 @@ module.exports = (io) => {
         const data = await CreateRideRegister.find({
           $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
         })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .sort({
+            createdAt: sort,
+          })
           .populate("vehicleId")
           .populate("cityId")
           .populate("userId")
           .populate("driverID")
           .populate({
             path: "NearestDriverList",
-          })
-          .skip((page - 1) * limit)
-          .limit(limit)
-          .sort({
-            createdAt: sort,
           });
         const count = await CreateRideRegister.find({
           $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
@@ -1194,6 +1239,7 @@ module.exports = (io) => {
     // =============================================================================Assign Ride==============================================================================
     socket.on("running-ride-data", async (details) => {
       try {
+        console.log(details);
         let createride;
         if (details.status == "1") {
           createride = await CreateRideRegister.findByIdAndUpdate(
@@ -1241,40 +1287,40 @@ module.exports = (io) => {
         }
 
         const data2 = await createride.save();
-        const data = await CreateRideRegister.find({
-          $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-        })
+        const driverupdate = await DriverRegister.findByIdAndUpdate(
+          details.id,
+          {
+            $set: {
+              RideStatus: "Hold",
+            },
+          }
+        );
+
+        io.emit("status-updated", driverupdate);
+        // ==================================Update A Paricular Data=======================================================
+        const data = await CreateRideRegister.findById(details.data._id)
           .populate("vehicleId")
           .populate("cityId")
           .populate("userId")
-          .skip((page - 1) * limit)
-          .limit(limit)
-          .sort({
-            createdAt: sort,
-          });
-        const count = await CreateRideRegister.find({
-          $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-        }).count();
-        const driver = await DriverRegister.findByIdAndUpdate(details.id, {
-          $set: {
-            RideStatus: "Hold",
-          },
+          .populate("driverID");
+
+        io.emit("createride-data-updated", {
+          status: "assign",
+          details: data,
         });
-        let drivers = await DriverRegister.find();
-        io.emit("driver-data", drivers);
-        io.emit("status-updated", driver);
-        io.emit("createride-data", { data, count });
-        const running = await CreateRideRegister.find({
-          $or: [{ Status: 4 }, { Status: 5 }, { Status: 6 }, { Status: 1 }],
-        })
-          .populate("vehicleId")
-          .populate("cityId")
-          .populate("userId")
-          .populate("driverID")
-          .populate({
-            path: "NearestDriverList",
-          });
-        io.emit("runningride-data", running);
+        console.log(
+          "***********************************************************",
+          data
+        );
+        // // ==================================Update Driver Status=======================================================
+        // const driver = await DriverRegister.findById( details.data.driverID._id)
+        //   .populate("typeid")
+        //   .populate("cityid")
+        //   .populate("countryid");
+        // io.emit("driver-data-updated", {
+        //   status: "assign",
+        //   details: driver,
+        // });
         // cronEvent.emit("cron", true);
         // io.emit("running-ride-data", createridedata);
       } catch (err) {
@@ -1365,39 +1411,30 @@ module.exports = (io) => {
             },
           }
         );
-        const data = await CreateRideRegister.find({
-          $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-        })
+        io.emit("status-updated", driverupdate);
+        // ==================================Update A Paricular Data=======================================================
+        const data = await CreateRideRegister.findById(result.details._id)
           .populate("vehicleId")
           .populate("cityId")
           .populate("userId")
-          .populate("driverID")
-          .skip((page - 1) * limit)
-          .limit(limit)
-          .sort({
-            createdAt: sort,
-          });
-        const count = await CreateRideRegister.find({
-          $or: [{ Status: 0 }, { Status: 1 }, { Status: 2 }],
-        }).count();
-        const driver = await DriverRegister.find()
+          .populate("driverID");
+
+        io.emit("createride-data-updated", {
+          status: "accept",
+          details: data,
+        });
+
+        // ==================================Update Driver Status=======================================================
+        const driver = await DriverRegister.findById(
+          result.details.driverID._id
+        )
           .populate("typeid")
           .populate("cityid")
           .populate("countryid");
-        const running = await CreateRideRegister.find({
-          $or: [{ Status: 4 }, { Status: 5 }, { Status: 6 }, { Status: 1 }],
-        })
-          .populate("vehicleId")
-          .populate("cityId")
-          .populate("userId")
-          .populate("driverID")
-          .populate({
-            path: "NearestDriverList",
-          });
-
-        io.emit("driver-data", driver);
-        io.emit("createride-data", { data, count });
-        io.emit("runningride-data", running);
+        io.emit("driver-data-updated", {
+          status: "accept",
+          details: driver,
+        });
         // cronEvent.emit("cron", true);
       } catch (err) {
         // console.log(err);

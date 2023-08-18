@@ -11,12 +11,15 @@ const { centralEmitter } = require("../Routers/settings");
 const img_path = path.join(__dirname, "../Public/user");
 const { env } = require("process");
 let stripe = require("stripe")('sk_test_51NBaQISBFTafl90RqEZsskcpKd7hByqd1z44DGulc8BI3CRucbnjAm2AaDonSiyhsgR5v8X3xUVMiNJgBkkyE9Ae00fBmTBdoD')
+
 centralEmitter.on("settings", async (data) => {
   if(data == true){
     const setting = await Settings.findOne().lean();
+    // console.log("setting", setting);
     stripe = require("stripe")(setting.StripeSecreteKey);
   }
 })
+
 
 const storage = multer.diskStorage({
   destination: function (req, res, cb) {
@@ -119,7 +122,7 @@ router.get("/list/edit/user/:id", async (req, res) => {
 router.post("/list/paginate", async (req, res) => {
   try {
     const setting = await Settings.findOne().lean();
-    console.log(setting);
+    // console.log(setting);
     let sort = 1;
     const page = Number(req.body.page);
     let limit = Number(req.body.limit);

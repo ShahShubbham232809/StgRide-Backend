@@ -26,7 +26,7 @@ const http = require("http");
 const server = http.createServer(app);
 const io = require("socket.io")(server, {
   cors: {
-    origin: ["http://localhost:32887"],
+    origin: ["https://stgride232809.netlify.app"],
   },
 });
 
@@ -56,7 +56,7 @@ const upload = multer({ storage });
 
 app.post("/registration", upload.single("profile"), async (req, res) => {
   try {
-    Register = new UserRegister({
+    const Register = new UserRegister({
       firstname: req.body.firstname,
       lastname: req.body.lastname,
       email: req.body.email,
